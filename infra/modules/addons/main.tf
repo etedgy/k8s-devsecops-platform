@@ -161,10 +161,12 @@ resource "helm_release" "prometheus" {
   create_namespace = true
   depends_on       = [helm_release.cilium]
 
-  # Slim it down for a local kind box.
+  # Slim it down for a local kind box; 15s scrape so the canary AnalysisRun has
+  # enough samples for rate() over a 1m window.
   values = [yamlencode({
-    alertmanager      = { enabled = false }
+    alertmanager           = { enabled = false }
     prometheus-pushgateway = { enabled = false }
-    kube-state-metrics = { enabled = true }
+    kube-state-metrics     = { enabled = true }
+    server                 = { global = { scrape_interval = "15s" } }
   })]
 }

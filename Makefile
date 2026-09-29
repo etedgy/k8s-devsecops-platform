@@ -43,8 +43,15 @@ gitops: ## GitOps path: hand the cluster to Argo CD (project + app-of-apps root)
 	kubectl apply -f argocd/root.yaml
 
 .PHONY: smoke
-smoke: ## Curl the app through the ingress
-	curl -fsS -H "Host: $(HOST)" http://localhost/my-app && echo
+smoke: ## Curl the app through the MetalLB LoadBalancer (from inside the kind network)
+	@IP=$$(kubectl -n ingress-nginx get svc ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'); \
+	echo "LB IP: $$IP"; \
+	docker exec rafael-$(ENV)-control-plane curl -fsS -H "Host: $(HOST)" http://$$IP/my-app && echo
+
+.PHONY: browse
+browse: ## Port-forward the ingress to localhost:8080 for a browser (Cilium hostPort caveat)
+	@echo "open http://localhost:8080/my-app  (Host header handled by /etc/hosts or curl -H)"
+	kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8080:80
 
 .PHONY: all
 all: up load deploy smoke ## Full local path: cluster -> image -> deploy -> verify
