@@ -1,12 +1,12 @@
 env: dev
 image:
-  tag: v0.0.2
+  tag: v0.0.3
 ingress:
   host: web.dev.localtest.me
 config:
   APP_ENV: dev
   LOG_LEVEL: debug
-  FAIL_RATE: "0"
+  FAIL_RATE: "1"
 autoscaling:
   minReplicas: 2
   maxReplicas: 5
