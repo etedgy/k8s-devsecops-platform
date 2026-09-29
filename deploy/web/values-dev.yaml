@@ -1,0 +1,14 @@
+env: dev
+image:
+  tag: latest        # dev tracks the newest build (Argo Image Updater bumps this)
+ingress:
+  host: web.dev.localtest.me
+config:
+  APP_ENV: dev
+  LOG_LEVEL: debug
+  FAIL_RATE: "0"
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 5
+canary:
+  analysis: true

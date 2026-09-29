@@ -1,0 +1,28 @@
+# Two stable/canary services; Argo Rollouts shifts traffic between them.
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-stable
+  labels:
+    {{- include "web.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "web.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-canary
+  labels:
+    {{- include "web.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "web.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http

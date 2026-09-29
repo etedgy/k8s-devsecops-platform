@@ -1,0 +1,64 @@
+# Env-agnostic defaults. Per-env values files override name/scale/image/config.
+env: dev
+
+image:
+  repository: ghcr.io/etedgy/rafael-web
+  # Immutable digest or SHA tag, set by CI / Argo Image Updater (GitOps).
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets:
+  - name: ghcr-cred
+
+containerPort: 8080
+
+# Non-secret config -> ConfigMap -> env
+config:
+  APP_ENV: dev
+  LOG_LEVEL: info
+  FAIL_RATE: "0" # >0 injects 5xx on /classified to demo canary abort
+
+# Illustrative sensitive value -> Secret -> env (app doesn't consume it)
+secret:
+  API_KEY: changeme-demo-only
+
+ingress:
+  className: nginx
+  host: web.dev.localtest.me
+
+service:
+  port: 80
+
+# Progressive delivery (Argo Rollouts canary)
+canary:
+  enabled: true
+  analysis: true # gate the canary on a Prometheus success-rate check
+  steps:
+    - setWeight: 20
+    - pause: { duration: 30s }
+    - analysis: true # runs the success-rate AnalysisTemplate here
+    - setWeight: 50
+    - pause: { duration: 30s }
+    - setWeight: 100
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+pdb:
+  minAvailable: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    # no CPU limit on purpose (avoid throttling a latency-sensitive web tier);
+    # cap memory only.
+    memory: 128Mi
+
+# Prometheus service the AnalysisTemplate queries
+prometheus:
+  address: http://prometheus-server.monitoring.svc.cluster.local
+  successRate: "0.95"

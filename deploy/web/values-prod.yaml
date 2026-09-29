@@ -1,0 +1,14 @@
+env: prod
+image:
+  tag: latest        # prod is pinned to a promoted, immutable tag in git (GitOps)
+ingress:
+  host: web.prod.localtest.me
+config:
+  APP_ENV: prod
+  LOG_LEVEL: warn
+  FAIL_RATE: "0"
+autoscaling:
+  minReplicas: 3
+  maxReplicas: 10
+canary:
+  analysis: true

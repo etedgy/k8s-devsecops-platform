@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web-staging
+  namespace: argocd
+
+spec:
+  project: rafael
+  source:
+    repoURL: https://github.com/etedgy/k8s-devsecops-platform.git
+    targetRevision: main
+    path: deploy/web
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-staging.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: web-staging
+  syncPolicy:
+
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

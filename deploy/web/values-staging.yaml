@@ -1,0 +1,14 @@
+env: staging
+image:
+  tag: latest
+ingress:
+  host: web.staging.localtest.me
+config:
+  APP_ENV: staging
+  LOG_LEVEL: info
+  FAIL_RATE: "0"
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 6
+canary:
+  analysis: true

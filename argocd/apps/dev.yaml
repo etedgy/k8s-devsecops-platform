@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web-dev
+  namespace: argocd
+  # NOTE: CI writes the new image tag into deploy/web/values-dev.yaml on each
+  # merge to main (GitOps write-back), and Argo auto-syncs it below. In a cloud
+  # setup, Argo Image Updater can do this bump instead (annotations documented
+  # in README) — one mechanism at a time, so it's not enabled here.
+spec:
+  project: rafael
+  source:
+    repoURL: https://github.com/etedgy/k8s-devsecops-platform.git
+    targetRevision: main
+    path: deploy/web
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: web-dev
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

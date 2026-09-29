@@ -1,0 +1,12 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+**/.kube/
+**/.metallb-pool.yaml
+# Node
+node_modules/
+npm-debug.log
+# Local
+.DS_Store

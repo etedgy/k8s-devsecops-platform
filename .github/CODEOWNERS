@@ -1,0 +1,5 @@
+# Every change to main requires review from a code owner.
+*                 @etedgy
+/infra/           @etedgy
+/deploy/          @etedgy
+/.github/         @etedgy

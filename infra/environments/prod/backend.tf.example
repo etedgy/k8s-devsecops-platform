@@ -1,0 +1,11 @@
+# In the cloud, give each environment its own remote state + locking.
+# Rename to backend.tf and `terraform init -migrate-state`.
+terraform {
+  backend "s3" {
+    bucket         = "my-tfstate-bucket"
+    key            = "rafael-interview/prod/terraform.tfstate"
+    region         = "eu-west-1"
+    dynamodb_table = "my-tf-locks"
+    encrypt        = true
+  }
+}

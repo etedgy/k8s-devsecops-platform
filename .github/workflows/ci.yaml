@@ -1,0 +1,143 @@
+name: ci
+
+# Git workflow: GitHub Flow. Feature branch -> PR (test + SAST + manifest
+# validation + image scan all run) -> merge to main -> version, push image,
+# write the new tag into deploy/web/values-dev.yaml (GitOps). CD is Argo CD,
+# never kubectl-from-CI. All actions are SHA-pinned (supply-chain hygiene).
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "deploy/**", ".github/workflows/ci.yaml"]
+  pull_request:
+    paths: ["app/**", "deploy/**", ".github/workflows/ci.yaml"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write   # tag releases + write image tag back to git
+  packages: write   # push to GHCR
+
+env:
+  IMAGE: ghcr.io/etedgy/rafael-web
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: app/package-lock.json }
+      - run: npm ci
+        working-directory: app
+      - run: npm test
+        working-directory: app
+
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container: { image: "semgrep/semgrep:1.90.0" }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # --error => pipeline FAILS on any ERROR-severity finding (the gate the
+      # brief asks for: "fail if any critical vulnerabilities are found").
+      - run: |
+          semgrep scan --config p/security-audit --config p/nodejs \
+            --config p/owasp-top-ten --severity ERROR --error .
+
+  validate-manifests:
+    name: Validate Helm (all envs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+      - run: helm lint deploy/web -f deploy/web/values-dev.yaml
+      - name: helm template every env
+        run: |
+          for env in dev staging prod; do
+            echo "::group::helm template $env"
+            helm template web deploy/web -f deploy/web/values.yaml -f deploy/web/values-$env.yaml
+            echo "::endgroup::"
+          done
+
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0 }
+      - id: v
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          latest=$(git tag -l 'v*.*.*' | sort -V | tail -n1); latest=${latest:-v0.0.0}
+          IFS=. read -r ma mi pa <<< "${latest#v}"
+          msg=$(git log -1 --pretty=%B)
+          if echo "$msg" | grep -qiE '#major|BREAKING CHANGE'; then ma=$((ma+1)); mi=0; pa=0
+          elif echo "$msg" | grep -qiE '#minor|^feat'; then mi=$((mi+1)); pa=0
+          else pa=$((pa+1)); fi
+          echo "version=v${ma}.${mi}.${pa}" >> "$GITHUB_OUTPUT"
+
+  build-scan-push:
+    name: Build, scan & push
+    needs: [test, sast, validate-manifests, version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build image (for scan)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: app
+          load: true
+          tags: local/scan:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # DevSecOps gate: block on HIGH/CRITICAL -> nothing is pushed or deployed.
+      - name: Trivy scan (gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: local/scan:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push multi-arch by version + SHA
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: app
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.version.outputs.version }}
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Tag release + write image tag into git (GitOps)
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          V="${{ needs.version.outputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$V" && git push origin "$V"
+          sed -i -E "s|(^\s*tag:\s*).*|\1${V}|" deploy/web/values-dev.yaml
+          git add deploy/web/values-dev.yaml
+          git commit -m "chore(deploy): dev -> ${V} [skip ci]" || echo "no change"
+          git push origin HEAD:main
